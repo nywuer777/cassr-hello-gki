@@ -59,7 +59,7 @@ jobs:
             echo "gki_tag=$GKI_TAG"
             echo "gki_commit=$(git -C kernel-src rev-parse HEAD)"
             echo "vermagic=$(modinfo -F vermagic hello_cassr.ko)"
-            echo "module_layout_crc=$(awk '$2 == \"module_layout\" { print $1 }' kernel-out/Module.symvers)"
+            echo "module_layout_crc=$(awk '$2 == "module_layout" { print $1 }' kernel-out/Module.symvers)"
             sha256sum hello_cassr.ko
           } > build-metadata.txt
 
