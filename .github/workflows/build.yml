@@ -1,0 +1,74 @@
+name: Build CassR Kernel Module
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GKI_TAG: android15-6.6-2026-01_r34
+  GKI_COMMIT: e56cf6b09cca2151bcee244b3d334fb68685ff57
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+            libelf-dev clang lld llvm git python3 kmod file
+
+      - name: Fetch pinned Android GKI source
+        run: |
+          git clone --depth 1 --branch "$GKI_TAG" \
+            https://android.googlesource.com/kernel/common kernel-src
+          test "$(git -C kernel-src rev-parse HEAD)" = "$GKI_COMMIT"
+
+      - name: Configure GKI kernel
+        run: |
+          make -C kernel-src O="$GITHUB_WORKSPACE/kernel-out" \
+            ARCH=arm64 LLVM=1 gki_defconfig
+
+      - name: Build kernel and generate Module.symvers
+        run: |
+          make -C kernel-src O="$GITHUB_WORKSPACE/kernel-out" \
+            ARCH=arm64 LLVM=1 -j4 Image modules
+          test -s kernel-out/Module.symvers
+
+      - name: Build external hello_cassr module
+        run: |
+          printf 'obj-m += hello_cassr.o\n' > Makefile
+          make -C kernel-src O="$GITHUB_WORKSPACE/kernel-out" \
+            ARCH=arm64 LLVM=1 M="$GITHUB_WORKSPACE" modules
+          test -s hello_cassr.ko
+          file hello_cassr.ko
+          modinfo hello_cassr.ko
+
+      - name: Record build metadata
+        run: |
+          {
+            echo "gki_tag=$GKI_TAG"
+            echo "gki_commit=$(git -C kernel-src rev-parse HEAD)"
+            echo "vermagic=$(modinfo -F vermagic hello_cassr.ko)"
+            echo "module_layout_crc=$(awk '$2 == \"module_layout\" { print $1 }' kernel-out/Module.symvers)"
+            sha256sum hello_cassr.ko
+          } > build-metadata.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_cassr-gki
+          path: |
+            hello_cassr.ko
+            build-metadata.txt
+          if-no-files-found: error
+          retention-days: 30
